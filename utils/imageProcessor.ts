@@ -14,6 +14,13 @@ const getLuminance = (r: number, g: number, b: number) => {
   return 0.299 * r + 0.587 * g + 0.114 * b;
 };
 
+// Calculate RMS (Root Mean Square) brightness
+// This preserves single-channel colors (like Blue/Red) much better than Luminance
+// preventing the "greyed out" look on dark backgrounds.
+const getIntensity = (r: number, g: number, b: number) => {
+  return Math.sqrt((r*r + g*g + b*b) / 3);
+};
+
 // Helper to draw image with "object-fit: cover" behavior
 const drawImageCover = (ctx: CanvasRenderingContext2D, img: HTMLImageElement, width: number, height: number) => {
   const scale = Math.max(width / img.width, height / img.height);
@@ -84,17 +91,20 @@ export const generateMagicImage = async (
     if (mode === GenerationMode.BLENDED) {
       
       // Auto-Leveling (Constraint Enforcement)
+      // Always enforce Light >= Dark to prevent negative alpha artifacts
+      // This is now default behavior.
       if (normalize) {
         rL = Math.max(rL, rD);
         gL = Math.max(gL, gD);
         bL = Math.max(bL, bD);
       }
 
-      // Calculate Alpha
-      const lumL = getLuminance(rL, gL, bL);
-      const lumD = getLuminance(rD, gD, bD);
+      // Calculate Alpha using RMS Intensity instead of Luminance
+      // This boosts visibility for pure colors (Blue/Red) on dark backgrounds
+      const intL = getIntensity(rL, gL, bL);
+      const intD = getIntensity(rD, gD, bD);
       
-      let alpha = 1 - (lumL - lumD) / 255;
+      let alpha = 1 - (intL - intD) / 255;
       
       // TWITTER FIX: Clamp Alpha strictly between 1 and 254.
       // 0 or 255 allows Twitter to compress to JPEG.
@@ -135,21 +145,10 @@ export const generateMagicImage = async (
         
         if (preserveColor) {
             // COLOR PRESERVATION MODE
-            // We want perfect color on White background.
-            // On Black background, it will appear as a "ghost".
-            // Equation on White: C_out * A + 255 * (1 - A) = C_target
-            // Solving for A min: A >= 1 - C_target / 255
-            
-            // 1. Calculate minimum alpha needed to support this color
             const minColorVal = Math.min(rL, gL, bL);
             let alpha = 1 - (minColorVal / 255);
-            
-            // 2. Clamp Alpha to avoid division by zero and satisfy PNG requirements
-            // A minimum of ~0.4% opacity ensures math stability
             alpha = Math.max(0.005, alpha);
             
-            // 3. Calculate Output Color
-            // C_out = (C_target - 255 * (1 - A)) / A
             const factor = 255 * (1 - alpha);
             const rOut = (rL - factor) / alpha;
             const gOut = (gL - factor) / alpha;
@@ -159,19 +158,16 @@ export const generateMagicImage = async (
             out[i+1] = Math.max(0, Math.min(255, gOut));
             out[i+2] = Math.max(0, Math.min(255, bOut));
             
-            // 4. Twitter Fix for Alpha (1-254)
             const aByte = Math.floor(alpha * 255);
             out[i+3] = Math.max(1, Math.min(254, aByte));
         } else {
             // GRAYSCALE (PERFECT HIDING) MODE
-            // Needs to be Black (0,0,0) with Alpha = (1 - LightLuminance)
             const lum = getLuminance(rL, gL, bL);
             const finalAlpha = 255 - lum;
             
             out[i] = 0;
             out[i+1] = 0;
             out[i+2] = 0;
-            // Clamp to prevent JPEG conversion
             out[i+3] = Math.max(1, Math.min(254, finalAlpha)); 
         }
 
@@ -181,20 +177,10 @@ export const generateMagicImage = async (
         
         if (preserveColor) {
             // COLOR PRESERVATION MODE
-            // We want perfect color on Black background.
-            // On White background, it will appear as a "ghost".
-            // Equation on Black: C_out * A = C_target
-            // Solving for A min: A >= C_target / 255
-            
-            // 1. Calculate minimum alpha needed to support this color
             const maxColorVal = Math.max(rD, gD, bD);
             let alpha = maxColorVal / 255;
-            
-            // 2. Clamp Alpha
             alpha = Math.max(0.005, alpha);
 
-            // 3. Calculate Output Color
-            // C_out = C_target / A
             const rOut = rD / alpha;
             const gOut = gD / alpha;
             const bOut = bD / alpha;
@@ -203,19 +189,16 @@ export const generateMagicImage = async (
             out[i+1] = Math.max(0, Math.min(255, gOut));
             out[i+2] = Math.max(0, Math.min(255, bOut));
 
-            // 4. Twitter Fix for Alpha
             const aByte = Math.floor(alpha * 255);
             out[i+3] = Math.max(1, Math.min(254, aByte));
         } else {
              // GRAYSCALE (PERFECT HIDING) MODE
-             // Needs to be White (255,255,255) with Alpha = DarkLuminance
              const lum = getLuminance(rD, gD, bD);
              const finalAlpha = lum;
     
              out[i] = 255;
              out[i+1] = 255;
              out[i+2] = 255;
-             // Clamp to prevent JPEG conversion
              out[i+3] = Math.max(1, Math.min(254, finalAlpha));
         }
       }

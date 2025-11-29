@@ -18,7 +18,7 @@ const getLuminance = (r: number, g: number, b: number) => {
 // This preserves single-channel colors (like Blue/Red) much better than Luminance
 // preventing the "greyed out" look on dark backgrounds.
 const getIntensity = (r: number, g: number, b: number) => {
-  return Math.sqrt((r*r + g*g + b*b) / 3);
+  return Math.sqrt((r * r + g * g + b * b) / 3);
 };
 
 // Helper to draw image with "object-fit: cover" behavior
@@ -80,48 +80,67 @@ export const generateMagicImage = async (
 
     // Source values
     let rL = lightData[i];
-    let gL = lightData[i+1];
-    let bL = lightData[i+2];
+    let gL = lightData[i + 1];
+    let bL = lightData[i + 2];
 
     let rD = darkData[i];
-    let gD = darkData[i+1];
-    let bD = darkData[i+2];
+    let gD = darkData[i + 1];
+    let bD = darkData[i + 2];
 
     // --- MODE: BLENDED (Color capable, requires Light >= Dark) ---
     if (mode === GenerationMode.BLENDED) {
-      
+
       // Auto-Leveling (Constraint Enforcement)
-      // Always enforce Light >= Dark to prevent negative alpha artifacts
-      // This is now default behavior.
       if (normalize) {
         rL = Math.max(rL, rD);
         gL = Math.max(gL, gD);
         bL = Math.max(bL, bD);
       }
 
-      // Calculate Alpha using RMS Intensity instead of Luminance
-      // This boosts visibility for pure colors (Blue/Red) on dark backgrounds
-      const intL = getIntensity(rL, gL, bL);
-      const intD = getIntensity(rD, gD, bD);
-      
-      let alpha = 1 - (intL - intD) / 255;
-      
-      // TWITTER FIX: Clamp Alpha strictly between 1 and 254.
-      // 0 or 255 allows Twitter to compress to JPEG.
-      // Partial transparency forces PNG-32.
-      alpha = Math.max(0.005, Math.min(0.995, alpha)); 
+      // Equal Balance Optimization
+      // The user wants "balance" and "equality" between Light and Dark mode.
+      // We calculate the Ideal Pixel for Light Mode and the Ideal Pixel for Dark Mode.
+      // Then we take the simple average (1:1 weight).
 
-      // Calculate Pixel Color
-      const rOut = Math.min(255, rD / alpha);
-      const gOut = Math.min(255, gD / alpha);
-      const bOut = Math.min(255, bD / alpha);
+      const aR = 1 - (rL - rD) / 255;
+      const aG = 1 - (gL - gD) / 255;
+      const aB = 1 - (bL - bD) / 255;
+
+      // 1. Calculate Alpha (Balanced Hybrid)
+      let alphaAvg = (aR + aG + aB) / 3;
+      const minAlphaForDark = Math.max(rD, gD, bD) / 255;
+      let alphaSafe = Math.max(alphaAvg, minAlphaForDark);
+      let alpha = (alphaAvg + alphaSafe) / 2;
+      alpha = Math.max(0.005, Math.min(0.995, alpha));
+
+      // 2. Calculate Output Pixel (Equal Weight 1:1)
+      // Ideal Light Pixel: P_L = (L - 255(1-a)) / a
+      // Ideal Dark Pixel:  P_D = D / a
+      // Output = (P_L + P_D) / 2
+
+      const idealL_R = (rL - 255 * (1 - alpha)) / alpha;
+      const idealL_G = (gL - 255 * (1 - alpha)) / alpha;
+      const idealL_B = (bL - 255 * (1 - alpha)) / alpha;
+
+      const idealD_R = rD / alpha;
+      const idealD_G = gD / alpha;
+      const idealD_B = bD / alpha;
+
+      let rOut = (idealL_R + idealD_R) / 2;
+      let gOut = (idealL_G + idealD_G) / 2;
+      let bOut = (idealL_B + idealD_B) / 2;
+
+      // Clamp
+      rOut = Math.min(255, Math.max(0, rOut));
+      gOut = Math.min(255, Math.max(0, gOut));
+      bOut = Math.min(255, Math.max(0, bOut));
 
       out[i] = rOut;
-      out[i+1] = gOut;
-      out[i+2] = bOut;
-      out[i+3] = Math.floor(alpha * 255);
-    } 
-    
+      out[i + 1] = gOut;
+      out[i + 2] = bOut;
+      out[i + 3] = Math.floor(alpha * 255);
+    }
+
     // --- MODE: INTERLACED / SCANLINES ---
     else {
       // Determine if this pixel belongs to Light or Dark mask
@@ -135,71 +154,63 @@ export const generateMagicImage = async (
         isLightSlot = y % 2 === 0;
       }
 
-      // CRITICAL TWITTER FIX:
-      // We purposefully introduce a tiny epsilon to the alpha channel (1-254 range).
-      // This forces the Twitter CDN to respect the Alpha channel and serve a PNG.
-
       if (isLightSlot) {
         // LIGHT SLOT (Intended for White Background)
-        // Hidden on Black
-        
         if (preserveColor) {
-            // COLOR PRESERVATION MODE
-            const minColorVal = Math.min(rL, gL, bL);
-            let alpha = 1 - (minColorVal / 255);
-            alpha = Math.max(0.005, alpha);
-            
-            const factor = 255 * (1 - alpha);
-            const rOut = (rL - factor) / alpha;
-            const gOut = (gL - factor) / alpha;
-            const bOut = (bL - factor) / alpha;
+          // COLOR PRESERVATION MODE
+          const minColorVal = Math.min(rL, gL, bL);
+          let alpha = 1 - (minColorVal / 255);
+          alpha = Math.max(0.005, alpha);
 
-            out[i] = Math.max(0, Math.min(255, rOut));
-            out[i+1] = Math.max(0, Math.min(255, gOut));
-            out[i+2] = Math.max(0, Math.min(255, bOut));
-            
-            const aByte = Math.floor(alpha * 255);
-            out[i+3] = Math.max(1, Math.min(254, aByte));
+          const factor = 255 * (1 - alpha);
+          const rOut = (rL - factor) / alpha;
+          const gOut = (gL - factor) / alpha;
+          const bOut = (bL - factor) / alpha;
+
+          out[i] = Math.max(0, Math.min(255, rOut));
+          out[i + 1] = Math.max(0, Math.min(255, gOut));
+          out[i + 2] = Math.max(0, Math.min(255, bOut));
+
+          const aByte = Math.floor(alpha * 255);
+          out[i + 3] = Math.max(1, Math.min(254, aByte));
         } else {
-            // GRAYSCALE (PERFECT HIDING) MODE
-            const lum = getLuminance(rL, gL, bL);
-            const finalAlpha = 255 - lum;
-            
-            out[i] = 0;
-            out[i+1] = 0;
-            out[i+2] = 0;
-            out[i+3] = Math.max(1, Math.min(254, finalAlpha)); 
+          // GRAYSCALE (PERFECT HIDING) MODE
+          const lum = getLuminance(rL, gL, bL);
+          const finalAlpha = 255 - lum;
+
+          out[i] = 0;
+          out[i + 1] = 0;
+          out[i + 2] = 0;
+          out[i + 3] = Math.max(1, Math.min(254, finalAlpha));
         }
 
       } else {
         // DARK SLOT (Intended for Black Background)
-        // Hidden on White
-        
         if (preserveColor) {
-            // COLOR PRESERVATION MODE
-            const maxColorVal = Math.max(rD, gD, bD);
-            let alpha = maxColorVal / 255;
-            alpha = Math.max(0.005, alpha);
+          // COLOR PRESERVATION MODE
+          const maxColorVal = Math.max(rD, gD, bD);
+          let alpha = maxColorVal / 255;
+          alpha = Math.max(0.005, alpha);
 
-            const rOut = rD / alpha;
-            const gOut = gD / alpha;
-            const bOut = bD / alpha;
+          const rOut = rD / alpha;
+          const gOut = gD / alpha;
+          const bOut = bD / alpha;
 
-            out[i] = Math.max(0, Math.min(255, rOut));
-            out[i+1] = Math.max(0, Math.min(255, gOut));
-            out[i+2] = Math.max(0, Math.min(255, bOut));
+          out[i] = Math.max(0, Math.min(255, rOut));
+          out[i + 1] = Math.max(0, Math.min(255, gOut));
+          out[i + 2] = Math.max(0, Math.min(255, bOut));
 
-            const aByte = Math.floor(alpha * 255);
-            out[i+3] = Math.max(1, Math.min(254, aByte));
+          const aByte = Math.floor(alpha * 255);
+          out[i + 3] = Math.max(1, Math.min(254, aByte));
         } else {
-             // GRAYSCALE (PERFECT HIDING) MODE
-             const lum = getLuminance(rD, gD, bD);
-             const finalAlpha = lum;
-    
-             out[i] = 255;
-             out[i+1] = 255;
-             out[i+2] = 255;
-             out[i+3] = Math.max(1, Math.min(254, finalAlpha));
+          // GRAYSCALE (PERFECT HIDING) MODE
+          const lum = getLuminance(rD, gD, bD);
+          const finalAlpha = lum;
+
+          out[i] = 255;
+          out[i + 1] = 255;
+          out[i + 2] = 255;
+          out[i + 3] = Math.max(1, Math.min(254, finalAlpha));
         }
       }
     }

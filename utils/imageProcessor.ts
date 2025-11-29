@@ -27,7 +27,7 @@ export const generateMagicImage = async (
   darkSrc: string,
   options: ProcessOptions
 ): Promise<ProcessedImageResult> => {
-  const { width, height, mode, normalize } = options;
+  const { width, height, mode, normalize, preserveColor } = options;
   const [lightImg, darkImg] = await Promise.all([loadImage(lightSrc), loadImage(darkSrc)]);
 
   const canvas = document.createElement('canvas');
@@ -112,7 +112,7 @@ export const generateMagicImage = async (
       out[i+3] = Math.floor(alpha * 255);
     } 
     
-    // --- MODE: INTERLACED / SCANLINES (Grayscale, Perfect Separation) ---
+    // --- MODE: INTERLACED / SCANLINES ---
     else {
       // Determine if this pixel belongs to Light or Dark mask
       let isLightSlot = false;
@@ -126,33 +126,98 @@ export const generateMagicImage = async (
       }
 
       // CRITICAL TWITTER FIX:
-      // We purposefully introduce a tiny epsilon to the alpha channel.
-      // Instead of 0 (fully transparent) -> 1
-      // Instead of 255 (fully opaque) -> 254
+      // We purposefully introduce a tiny epsilon to the alpha channel (1-254 range).
       // This forces the Twitter CDN to respect the Alpha channel and serve a PNG.
 
       if (isLightSlot) {
-        // LIGHT SLOT (Hidden on Black)
-        // Needs to be Black (0,0,0) with Alpha = (1 - LightLuminance)
-        const lum = getLuminance(rL, gL, bL);
-        const finalAlpha = 255 - lum;
+        // LIGHT SLOT (Intended for White Background)
+        // Hidden on Black
         
-        out[i] = 0;
-        out[i+1] = 0;
-        out[i+2] = 0;
-        // Clamp to prevent JPEG conversion
-        out[i+3] = Math.max(1, Math.min(254, finalAlpha)); 
-      } else {
-        // DARK SLOT (Hidden on White)
-        // Needs to be White (255,255,255) with Alpha = DarkLuminance
-        const lum = getLuminance(rD, gD, bD);
-        const finalAlpha = lum;
+        if (preserveColor) {
+            // COLOR PRESERVATION MODE
+            // We want perfect color on White background.
+            // On Black background, it will appear as a "ghost".
+            // Equation on White: C_out * A + 255 * (1 - A) = C_target
+            // Solving for A min: A >= 1 - C_target / 255
+            
+            // 1. Calculate minimum alpha needed to support this color
+            const minColorVal = Math.min(rL, gL, bL);
+            let alpha = 1 - (minColorVal / 255);
+            
+            // 2. Clamp Alpha to avoid division by zero and satisfy PNG requirements
+            // A minimum of ~0.4% opacity ensures math stability
+            alpha = Math.max(0.005, alpha);
+            
+            // 3. Calculate Output Color
+            // C_out = (C_target - 255 * (1 - A)) / A
+            const factor = 255 * (1 - alpha);
+            const rOut = (rL - factor) / alpha;
+            const gOut = (gL - factor) / alpha;
+            const bOut = (bL - factor) / alpha;
 
-        out[i] = 255;
-        out[i+1] = 255;
-        out[i+2] = 255;
-        // Clamp to prevent JPEG conversion
-        out[i+3] = Math.max(1, Math.min(254, finalAlpha));
+            out[i] = Math.max(0, Math.min(255, rOut));
+            out[i+1] = Math.max(0, Math.min(255, gOut));
+            out[i+2] = Math.max(0, Math.min(255, bOut));
+            
+            // 4. Twitter Fix for Alpha (1-254)
+            const aByte = Math.floor(alpha * 255);
+            out[i+3] = Math.max(1, Math.min(254, aByte));
+        } else {
+            // GRAYSCALE (PERFECT HIDING) MODE
+            // Needs to be Black (0,0,0) with Alpha = (1 - LightLuminance)
+            const lum = getLuminance(rL, gL, bL);
+            const finalAlpha = 255 - lum;
+            
+            out[i] = 0;
+            out[i+1] = 0;
+            out[i+2] = 0;
+            // Clamp to prevent JPEG conversion
+            out[i+3] = Math.max(1, Math.min(254, finalAlpha)); 
+        }
+
+      } else {
+        // DARK SLOT (Intended for Black Background)
+        // Hidden on White
+        
+        if (preserveColor) {
+            // COLOR PRESERVATION MODE
+            // We want perfect color on Black background.
+            // On White background, it will appear as a "ghost".
+            // Equation on Black: C_out * A = C_target
+            // Solving for A min: A >= C_target / 255
+            
+            // 1. Calculate minimum alpha needed to support this color
+            const maxColorVal = Math.max(rD, gD, bD);
+            let alpha = maxColorVal / 255;
+            
+            // 2. Clamp Alpha
+            alpha = Math.max(0.005, alpha);
+
+            // 3. Calculate Output Color
+            // C_out = C_target / A
+            const rOut = rD / alpha;
+            const gOut = gD / alpha;
+            const bOut = bD / alpha;
+
+            out[i] = Math.max(0, Math.min(255, rOut));
+            out[i+1] = Math.max(0, Math.min(255, gOut));
+            out[i+2] = Math.max(0, Math.min(255, bOut));
+
+            // 4. Twitter Fix for Alpha
+            const aByte = Math.floor(alpha * 255);
+            out[i+3] = Math.max(1, Math.min(254, aByte));
+        } else {
+             // GRAYSCALE (PERFECT HIDING) MODE
+             // Needs to be White (255,255,255) with Alpha = DarkLuminance
+             const lum = getLuminance(rD, gD, bD);
+             const finalAlpha = lum;
+    
+             out[i] = 255;
+             out[i+1] = 255;
+             out[i+2] = 255;
+             // Clamp to prevent JPEG conversion
+             out[i+3] = Math.max(1, Math.min(254, finalAlpha));
+        }
       }
     }
   }

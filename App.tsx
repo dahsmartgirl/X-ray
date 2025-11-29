@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ImageUploader } from './components/ImageUploader';
 import { generateMagicImage } from './utils/imageProcessor';
 import { PreviewMode, GenerationMode } from './types';
-import { Download, Moon, Sun, Monitor, AlertTriangle, ArrowLeft, MoreHorizontal, Grid, Layers, Command, Github, BadgeCheck, MapPin, Calendar, Link as LinkIcon, ScanLine, Wand2, Ruler, ShieldCheck } from 'lucide-react';
+import { Download, Moon, Sun, Monitor, AlertTriangle, ArrowLeft, MoreHorizontal, Grid, Layers, Command, Github, BadgeCheck, MapPin, Calendar, Link as LinkIcon, ScanLine, Wand2, Ruler, ShieldCheck, Palette } from 'lucide-react';
 
 const TWITTER_WIDTH = 1500;
 const TWITTER_HEIGHT = 500;
@@ -13,9 +13,11 @@ export default function App() {
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [previewMode, setPreviewMode] = useState<PreviewMode>(PreviewMode.DARK);
-  // Default to BLENDED as requested
+  // Default to SCANLINES as requested implicitly by user focus on it, or stick to previous default? 
+  // User asked to make BLENDED work like SCANLINES, but better to default to Blended if that was previous behavior.
   const [generationMode, setGenerationMode] = useState<GenerationMode>(GenerationMode.BLENDED);
   const [autoLevel, setAutoLevel] = useState<boolean>(true);
+  const [preserveColor, setPreserveColor] = useState<boolean>(false);
   const [showSafeZones, setShowSafeZones] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,7 +40,8 @@ export default function App() {
             height: TWITTER_HEIGHT,
             brightness: 0,
             mode: generationMode,
-            normalize: autoLevel
+            normalize: autoLevel,
+            preserveColor: preserveColor
         });
         setGeneratedImage(result.dataUrl);
 
@@ -54,12 +57,12 @@ export default function App() {
 
     const timer = setTimeout(process, 200);
     return () => clearTimeout(timer);
-  }, [lightFile, darkFile, generationMode, autoLevel]);
+  }, [lightFile, darkFile, generationMode, autoLevel, preserveColor]);
 
   const handleDownload = () => {
     if (!generatedImage) return;
     const link = document.createElement('a');
-    link.download = 'magic-header.png';
+    link.download = 'x-ray-header.png';
     link.href = generatedImage;
     link.click();
   };
@@ -121,8 +124,8 @@ export default function App() {
                 <Command size={16} className="text-black" />
             </div>
             <div className="flex flex-col leading-none gap-0.5">
-               <span className="font-semibold text-sm tracking-tight text-white">MagicHeader</span>
-               <span className="text-[10px] text-zinc-500 font-mono tracking-wider uppercase">Studio v2.1</span>
+               <span className="font-semibold text-sm tracking-tight text-white">X-Ray</span>
+               <span className="text-[10px] text-zinc-500 font-mono tracking-wider uppercase">Studio v2.2</span>
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -217,23 +220,23 @@ export default function App() {
                             <div className="flex items-start gap-2 text-zinc-500">
                                 <ShieldCheck size={14} className="mt-0.5 shrink-0" />
                                 <p className="text-[12px] leading-relaxed">
-                                    <strong className="text-zinc-300">Twitter Optimized.</strong> Uses horizontal lines to survive mobile resizing and prevents "glitchy" Moiré patterns. Highly recommended.
+                                    <strong className="text-zinc-300">Twitter Optimized.</strong> Uses horizontal lines to survive mobile resizing. {preserveColor ? "Retains full color but may show faint ghosting on opposite themes." : "Converts to grayscale for perfect hiding."}
                                 </p>
                             </div>
                         )}
                         {generationMode === GenerationMode.INTERLACED && (
                             <p className="text-[12px] leading-relaxed text-zinc-500">
-                                Checkerboard pattern. Sharpest theoretical result, but can look "glitchy" if Twitter resizes the image. Good for desktop-only use.
+                                Checkerboard pattern. Sharpest details on desktop. {preserveColor ? "Retains full color but may show faint ghosting." : "Converts to grayscale for perfect hiding."}
                             </p>
                         )}
                         {generationMode === GenerationMode.BLENDED && (
                             <p className="text-[12px] leading-relaxed text-zinc-500">
-                                Uses alpha blending to preserve color. Can look washed out. Requires high contrast source images.
+                                Uses alpha blending. Keeps color but requires high contrast source images to avoid washing out.
                             </p>
                         )}
                     </div>
 
-                    {generationMode === GenerationMode.BLENDED && (
+                    {generationMode === GenerationMode.BLENDED ? (
                        <div className="flex items-center justify-between p-3 rounded-lg bg-zinc-900/30 border border-white/5">
                            <div className="flex flex-col">
                                <span className="text-xs font-medium text-zinc-200 flex items-center gap-2">
@@ -246,6 +249,21 @@ export default function App() {
                                 className={`w-11 h-6 rounded-full transition-colors relative ${autoLevel ? 'bg-indigo-600' : 'bg-zinc-700'}`}
                            >
                                 <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${autoLevel ? 'translate-x-5' : 'translate-x-0'}`} />
+                           </button>
+                       </div>
+                    ) : (
+                       <div className="flex items-center justify-between p-3 rounded-lg bg-zinc-900/30 border border-white/5">
+                           <div className="flex flex-col">
+                               <span className="text-xs font-medium text-zinc-200 flex items-center gap-2">
+                                   <Palette size={12} className="text-pink-400"/> Preserve Color
+                               </span>
+                               <span className="text-[10px] text-zinc-500 mt-0.5">Allow ghosting to keep color</span>
+                           </div>
+                           <button 
+                                onClick={() => setPreserveColor(!preserveColor)}
+                                className={`w-11 h-6 rounded-full transition-colors relative ${preserveColor ? 'bg-pink-600' : 'bg-zinc-700'}`}
+                           >
+                                <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${preserveColor ? 'translate-x-5' : 'translate-x-0'}`} />
                            </button>
                        </div>
                     )}
@@ -403,7 +421,7 @@ export default function App() {
                                     <h2 className={`text-xl font-extrabold leading-tight ${theme.text}`}>Magic Artist</h2>
                                     <div className="text-[#1D9BF0]"><BadgeCheck size={20} fill="#1D9BF0" className="text-white" /></div>
                                 </div>
-                                <p className={`text-[15px] ${theme.subText}`}>@MagicHeaderApp</p>
+                                <p className={`text-[15px] ${theme.subText}`}>@XRayApp</p>
                             </div>
                             
                             <div className={`text-[15px] leading-snug ${theme.text}`}>

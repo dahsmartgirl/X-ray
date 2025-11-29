@@ -21,5 +21,6 @@ export interface ProcessOptions {
   height: number;
   brightness: number;
   mode: GenerationMode;
-  normalize: boolean; // Forces Light >= Dark constraint
+  normalize: boolean; // Forces Light >= Dark constraint (Auto Level)
+  preserveColor?: boolean; // Keeps color in Scanlines/Interlaced at cost of hiding effectiveness
 }

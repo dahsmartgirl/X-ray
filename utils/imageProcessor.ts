@@ -99,9 +99,6 @@ export const generateMagicImage = async (
 
       // Equal Balance Optimization
       // The user wants "balance" and "equality" between Light and Dark mode.
-      // We calculate the Ideal Pixel for Light Mode and the Ideal Pixel for Dark Mode.
-      // Then we take the simple average (1:1 weight).
-
       const aR = 1 - (rL - rD) / 255;
       const aG = 1 - (gL - gD) / 255;
       const aB = 1 - (bL - bD) / 255;
@@ -111,7 +108,14 @@ export const generateMagicImage = async (
       const minAlphaForDark = Math.max(rD, gD, bD) / 255;
       let alphaSafe = Math.max(alphaAvg, minAlphaForDark);
       let alpha = (alphaAvg + alphaSafe) / 2;
-      alpha = Math.max(0.005, Math.min(0.995, alpha));
+
+      // TWITTER FIX: Strict Clamping & Anti-Compression
+      // Add invisible noise to alpha to prevent RLE compression optimization
+      const noise = (Math.random() - 0.5) * (2 / 255);
+      alpha += noise;
+
+      // Clamp strictly to [1/255, 254/255]
+      alpha = Math.max(0.004, Math.min(0.996, alpha));
 
       // 2. Calculate Output Pixel (Equal Weight 1:1)
       // Ideal Light Pixel: P_L = (L - 255(1-a)) / a
@@ -215,6 +219,11 @@ export const generateMagicImage = async (
       }
     }
   }
+
+  // FORCE TWITTER FLAG
+  // Set the very first pixel to have alpha 254 (0xFE)
+  // This is a known flag to prevent Twitter from converting to JPG.
+  out[3] = 254;
 
   ctx.putImageData(outputImgData, 0, 0);
 
